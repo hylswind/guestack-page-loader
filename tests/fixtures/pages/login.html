@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Login (fixture)</title>
+</head>
+<body>
+<h1 id="title">Login fixture page</h1>
+<p>search: <code id="search"></code></p>
+<p>hash: <code id="hash"></code></p>
+<p id="script-ran">script did not run</p>
+<script>
+  document.getElementById("search").textContent = location.search;
+  document.getElementById("hash").textContent = location.hash;
+  document.getElementById("script-ran").textContent = "login script ran";
+</script>
+</body>
+</html>

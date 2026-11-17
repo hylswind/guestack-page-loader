@@ -1,0 +1,2 @@
+# Deployed byte for byte: never convert line endings.
+site/** -text

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loading…</title>
+<style>
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #222; background: #fff; }
+  #status { max-width: 32rem; margin: 20vh auto 0; padding: 0 1rem; text-align: center; }
+  #status.notice { color: #555; }
+  #status.error { color: #b00020; font-weight: 600; }
+</style>
+</head>
+<body>
+<p id="status" role="status">Loading…</p>
+<noscript><p>This page requires JavaScript.</p></noscript>
+<script>
+(async () => {
+  "use strict";
+
+  const CDN_BASE_URL = "https://pub-b4866f87b3c64d11be815db6b70efe19.r2.dev/";
+
+  const PAGE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+  const HEX_RE = /^[0-9a-f]{64}$/;
+
+  // Messages are set with textContent only, never parsed as HTML.
+  const show = (cls, msg) => {
+    const el = document.getElementById("status");
+    el.className = cls;
+    el.textContent = msg;
+  };
+  const notice = (msg) => show("notice", msg);
+  const fail = (msg) => show("error", msg);
+
+  // One leading slash and one optional trailing slash are stripped.
+  // Anything that is not a single valid segment is rejected below.
+  const page = location.pathname.replace(/^\//, "").replace(/\/$/, "");
+  if (!page) {
+    notice("No page specified. Please open the full link you were given.");
+    return;
+  }
+
+  try {
+    // Validated before any request. The page name is only a lookup key
+    // and is never used to build a URL.
+    if (!PAGE_RE.test(page)) {
+      fail("Invalid page.");
+      return;
+    }
+
+    const mRes = await fetch(`${CDN_BASE_URL}manifest.json`, {
+      cache: "no-cache",
+      mode: "cors",
+      credentials: "omit",
+    });
+    if (!mRes.ok) {
+      fail("Unable to look up the page.");
+      return;
+    }
+
+    let manifest;
+    try {
+      manifest = await mRes.json();
+    } catch {
+      fail("Unable to look up the page.");
+      return;
+    }
+
+    // The manifest is untrusted input. Only pages.<name>.sha256 is read.
+    const pages = manifest !== null && typeof manifest === "object" ? manifest.pages : undefined;
+    if (pages === null || typeof pages !== "object" || Array.isArray(pages)) {
+      fail("Unable to look up the page.");
+      return;
+    }
+    if (!Object.hasOwn(pages, page)) {
+      fail("Page not found.");
+      return;
+    }
+    const entry = pages[page];
+    const hex = entry !== null && typeof entry === "object" ? entry.sha256 : undefined;
+    if (typeof hex !== "string" || !HEX_RE.test(hex)) {
+      fail("Invalid checksum.");
+      return;
+    }
+
+    const bytes = hex.match(/../g).map((h) => parseInt(h, 16));
+    const b64 = btoa(String.fromCharCode(...bytes));
+
+    // fetch() rejects if the body does not match the integrity value.
+    // This is the only verification path; there is no fallback.
+    const res = await fetch(`${CDN_BASE_URL}blobs/${hex}.html`, {
+      integrity: `sha256-${b64}`,
+      mode: "cors",
+      credentials: "omit",
+    });
+    if (!res.ok) {
+      fail("Page content is unavailable.");
+      return;
+    }
+    const html = await res.text();
+
+    document.open();
+    document.write(html);
+    document.close();
+  } catch (e) {
+    fail("Failed to load the page.");
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>

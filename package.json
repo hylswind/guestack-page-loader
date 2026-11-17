@@ -1,0 +1,19 @@
+{
+  "name": "guestack-page-loader",
+  "private": true,
+  "type": "module",
+  "description": "Static checksum loader: looks up a page's SHA-256 in a CDN manifest and loads the verified blob.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/site.test.mjs",
+    "test:e2e": "playwright test",
+    "deploy:loader": "node scripts/deploy-loader.mjs",
+    "seed:dev": "node scripts/seed-dev.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "wrangler": "^4.163.0"
+  }
+}
