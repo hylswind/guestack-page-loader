@@ -45,7 +45,9 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  noscript { display: contents; }
+  /* Place the <noscript> element itself; never change its display. With scripting on,
+     its content is raw text that the browser hides only through display: none. */
+  noscript { grid-row: 2; grid-column: 2; }
 
   #status, .noscript {
     grid-row: 2;

@@ -100,8 +100,16 @@ async function settled(page) {
   );
 }
 
+/** The <noscript> fallback must never be visible while scripting is on. */
+async function expectNoNoscriptText(page) {
+  const visible = await page.locator("body").innerText();
+  expect(visible).not.toContain("requires JavaScript");
+  expect(visible).not.toContain("<style>");
+}
+
 async function expectError(page, text) {
   await settled(page);
+  await expectNoNoscriptText(page);
   const status = page.locator("#status");
   await expect(status).toHaveClass("error");
   if (text) await expect(status).toHaveText(text);
@@ -110,6 +118,7 @@ async function expectError(page, text) {
 
 async function expectNotice(page) {
   await settled(page);
+  await expectNoNoscriptText(page);
   const status = page.locator("#status");
   await expect(status).toHaveClass("notice");
   await expect(status).toHaveText("No page specified. Please open the full link you were given.");
@@ -126,6 +135,18 @@ test.beforeEach(async ({ page }) => {
 
 test.afterEach(async () => {
   expect(dialogs, "no script injection (no dialogs)").toEqual([]);
+});
+
+test.describe("noscript fallback", () => {
+  test("with JavaScript disabled, only the fallback message is shown", async ({ browser }) => {
+    const ctx = await browser.newContext({ javaScriptEnabled: false });
+    const page = await ctx.newPage();
+    await page.goto("/login");
+    await expect(page.locator(".noscript")).toBeVisible();
+    await expect(page.locator(".noscript")).toHaveText("This page requires JavaScript.");
+    await expect(page.locator("#status")).toBeHidden();
+    await ctx.close();
+  });
 });
 
 test.describe("routing on the dev server", () => {
