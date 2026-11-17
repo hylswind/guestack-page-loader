@@ -5,6 +5,7 @@ const PORT = 8788;
 export default defineConfig({
   testDir: "tests",
   testMatch: "e2e.spec.mjs",
+  globalSetup: "./tests/global-setup.mjs",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? "list" : [["list"]],

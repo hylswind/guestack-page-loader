@@ -10,14 +10,15 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DEFAULT_OUT_DIR, makeCdn } from "./fixtures/make-cdn.mjs";
+import { DEFAULT_OUT_DIR } from "./fixtures/make-cdn.mjs";
 
 const root = resolve(fileURLToPath(import.meta.url), "../..");
 const indexHtml = readFileSync(join(root, "site/index.html"), "utf8");
 const CDN_BASE_URL = indexHtml.match(/const CDN_BASE_URL = "([^"]+)";/)[1];
 const CDN_ORIGIN = new URL(CDN_BASE_URL).origin;
 
-const MANIFEST = makeCdn();
+// Built once by tests/global-setup.mjs; workers only read it.
+const MANIFEST = JSON.parse(readFileSync(join(DEFAULT_OUT_DIR, "manifest.json"), "utf8"));
 const LOGIN_HEX = MANIFEST.pages.login.sha256;
 const HOME_HEX = MANIFEST.pages.home.sha256;
 const manifestBody = (manifest) => JSON.stringify(manifest);
