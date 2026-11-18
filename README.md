@@ -191,7 +191,7 @@ curl -I https://<LOADER_HOST>/login
 curl -s https://<LOADER_HOST>/ | sha256sum
 sha256sum site/index.html
 
-# CORS: both return 200, Access-Control-Allow-Origin, and the Cache-Control from the contract
+# CORS: both return 200 with Access-Control-Allow-Origin
 curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>manifest.json
 curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>blobs/<hex>.html
 ```
