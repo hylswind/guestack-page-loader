@@ -9,7 +9,7 @@ A static loader on Cloudflare Pages that only loads pages whose SHA-256 checksum
 Opening `https://<LOADER_HOST>/<page>`:
 
 1. looks up the current SHA-256 of `<page>` in a single `manifest.json` on the CDN,
-2. downloads `blobs/<sha256>.html` with [Subresource Integrity](https://developer.mozilla.org/docs/Web/Security/Subresource_Integrity),
+2. downloads `blobs/<sha256>.html` with [Subresource Integrity](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity),
 3. replaces the current document with that HTML once the browser has verified it.
 
 ```
