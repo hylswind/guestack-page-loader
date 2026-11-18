@@ -1,110 +1,147 @@
-# Checksum loader
+# Checksum Loader
 
-A minimal static site on Cloudflare Pages. Opening `https://<LOADER_HOST>/<page>`:
+A static loader on Cloudflare Pages that only loads pages whose SHA-256 checksum the browser has verified.
 
-1. looks up the latest SHA-256 of `<page>` in a single `manifest.json` on the CDN,
-2. downloads `blobs/<sha256>.html` from the CDN with Subresource Integrity,
-3. if the browser verifies the checksum, replaces the current document with that HTML.
+[Overview](#overview) • [Getting started](#getting-started) • [Deployment](#deployment) • [Infrastructure setup](#infrastructure-setup) • [Limitations](#limitations)
 
-At `/` nothing is loaded and a notice is shown. On any failure an error is shown; unverified content is never loaded.
+## Overview
 
-Pages are built and published by the app repository, not here. The interface between the two is [`docs/CDN-CONTRACT.md`](docs/CDN-CONTRACT.md).
+Opening `https://<LOADER_HOST>/<page>`:
+
+1. looks up the current SHA-256 of `<page>` in a single `manifest.json` on the CDN,
+2. downloads `blobs/<sha256>.html` with [Subresource Integrity](https://developer.mozilla.org/docs/Web/Security/Subresource_Integrity),
+3. replaces the current document with that HTML once the browser has verified it.
 
 ```
 /login ─▶ validate page name
-       ─▶ fetch <CDN_BASE_URL>manifest.json      → pages.login.sha256 = <hex>
-       ─▶ fetch <CDN_BASE_URL>blobs/<hex>.html with integrity
+       ─▶ fetch <CDN_BASE_URL>manifest.json        → pages.login.sha256 = <hex>
+       ─▶ fetch <CDN_BASE_URL>blobs/<hex>.html     with integrity="sha256-…"
        ─▶ verified ─▶ document.write(html)
 
-/      ─▶ show notice, make no network requests
+/      ─▶ show a notice, make no network requests
 ```
 
-## No build step
+Unverified content is never loaded. If any step fails, the loader shows an error instead.
 
-`site/` is uploaded to Cloudflare Pages as-is, byte for byte. It contains exactly two hand-written files:
+Pages are built and published by a separate app repository. The interface between the two is [`docs/CDN-CONTRACT.md`](docs/CDN-CONTRACT.md).
 
-- `site/index.html`: the loader (one inline script, no external resources),
-- `site/_headers`: `Cache-Control: no-cache` plus security headers for every path.
+### Key features
 
-There is no templating, minification, bundling, or injected value, so the file served online can be compared directly with the file in git. `.gitattributes` disables line-ending conversion under `site/`.
+- **No build step.** `site/` holds two hand-written files and is deployed byte for byte, so you can compare the served file with git directly.
+- **No dependencies.** The loader is one HTML file with one inline script. It loads no external scripts, styles, fonts or images.
+- **One setting.** The CDN location is a single literal in `site/index.html`.
+- **Untrusted manifest.** The loader reads only `pages.<name>.sha256` from the manifest. The page name is validated before any request is made and is never used to build a URL.
 
-Do not:
+### What visitors see
 
-- add a top-level `404.html` (it disables the Pages SPA fallback that serves the loader on every path),
-- add `/* /index.html 200` to `_redirects` (wrangler rejects it as an infinite loop),
-- enable any Cloudflare feature that rewrites HTML on `LOADER_HOST` (minification, Rocket Loader, email obfuscation, Web Analytics auto-injection, etc.).
+| Situation | Message |
+| --- | --- |
+| Loading (shown only if it takes longer than 0.35 s) | Loading… |
+| `/` with no page name | No page specified. Please open the full link you were given. |
+| Malformed page name (`/Login`, `/a/b`, `/login.html`) | Invalid page. |
+| Manifest missing, not JSON, or has no `pages` object | Unable to look up the page. |
+| Page not listed in the manifest | Page not found. |
+| Checksum is not 64 lowercase hex characters | Invalid checksum. |
+| Blob request returns a non-2xx status | Page content is unavailable. |
+| Checksum mismatch, network or CORS failure | Failed to load the page. |
+| JavaScript disabled | This page requires JavaScript. |
 
-## Configuration
+## Getting started
 
-The only setting is the `CDN_BASE_URL` literal in `site/index.html`:
+### Prerequisites
 
-```js
-  const CDN_BASE_URL = "https://pub-<id>.r2.dev/";
-```
+- [Node.js](https://nodejs.org/) 20 or later (dev tooling only)
+- A Cloudflare account, for deployment only
 
-In Phase 1 it is the bucket's public development URL (Infrastructure setup, step 2). The actual value lives only in `site/index.html`. `npm run deploy:loader` refuses to deploy the all-zero placeholder ID used before the bucket existed.
-
-Moving from Phase 1 to Phase 2 is a one-line edit of this literal, a commit, and one redeploy.
-
-Dev tooling reads `.env` (see `.env.example`): `PAGES_PROJECT` (default `loader`), `R2_BUCKET` (seed script only), `CLOUDFLARE_API_TOKEN` (or use `npx wrangler login`).
-
-## Development
-
-Requires Node 20+.
+### Install and test
 
 ```sh
 npm install
-npx playwright install chromium   # first time, or after upgrading Playwright
+npx playwright install chromium
 
-npm test            # unit tests (node:test): site/ contents, CDN_BASE_URL literal, make-cdn output
+npm test            # unit tests: site/ contents, the CDN_BASE_URL literal, the fixture builder
 npm run test:e2e    # Playwright against `wrangler pages dev site` on http://localhost:8788
 ```
 
-Run a single test:
+To run a single test:
 
 ```sh
 node --test --test-name-pattern="exactly one CDN_BASE_URL" tests/site.test.mjs
 npx playwright test -g "tampered blob"
 ```
 
-The E2E tests serve the unmodified `site/` directory. They read `CDN_BASE_URL` from `site/index.html` and answer every request to that origin from `tmp/test-cdn` (built from `tests/fixtures/pages/` by `tests/fixtures/make-cdn.mjs`) using Playwright request interception. No request reaches the real CDN; any request to an unexpected host fails the test.
+The E2E tests serve the unmodified `site/` directory. Every request to `CDN_BASE_URL` is answered from `tmp/test-cdn`, which is built from `tests/fixtures/pages/`. A request to any other host fails the test, so nothing reaches the real CDN.
 
-Chromium does not enforce CORS on intercepted responses, so a missing CORS header cannot be simulated in the E2E tests. CORS is checked against the real bucket with `curl` (Verify, step 10).
+> [!NOTE]
+> Chromium does not enforce CORS on intercepted responses, so the E2E tests do not cover CORS. Check it against the real bucket with `curl` (see [Verify](#verify)).
 
-To preview locally: `npx wrangler pages dev site`, then open http://localhost:8788/login. Without a real `CDN_BASE_URL` (and a CORS rule allowing `http://localhost:8788`) the page shows an error.
-
-## Deploy
+### Local preview
 
 ```sh
-git commit ...          # site/ must be committed
-npm run deploy:loader   # = wrangler pages deploy site --project-name $PAGES_PROJECT
+npx wrangler pages dev site
 ```
 
-The script refuses if `site/` has uncommitted or untracked changes, or if `CDN_BASE_URL` is still the placeholder. It never transforms files and never touches R2.
+Then open http://localhost:8788/login. This works only if the bucket's CORS policy allows `http://localhost:8788`.
 
-## Infrastructure setup (Phase 1)
+## Configuration
 
-> These steps have **not** been run. They need Cloudflare and AWS credentials. Values used below: `R2_BUCKET=loader-pages`, `PAGES_PROJECT=loader`, `LOADER_HOST` = your subdomain (e.g. `app.example.com`).
+The only setting is the `CDN_BASE_URL` literal in `site/index.html`. It must be on its own line, in exactly this form, with a trailing slash:
+
+```js
+  const CDN_BASE_URL = "https://pub-<id>.r2.dev/";
+```
+
+The tests and scripts parse this line, so keep it as a plain string literal.
+
+The dev scripts read `.env`; copy it from [`.env.example`](.env.example):
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `PAGES_PROJECT` | `deploy:loader` | Cloudflare Pages project name (default `loader`) |
+| `R2_BUCKET` | `seed:dev` | Bucket to upload test fixtures to |
+| `CLOUDFLARE_API_TOKEN` | wrangler | Optional if you use `npx wrangler login` |
+
+## Deployment
+
+Commit your changes, then run:
+
+```sh
+npm run deploy:loader   # wrangler pages deploy site --project-name $PAGES_PROJECT
+```
+
+The script refuses to deploy if `site/` has uncommitted or untracked changes. It never transforms files and never touches R2.
+
+> [!WARNING]
+> Each of these breaks the loader:
+>
+> - Adding a top-level `404.html`. It disables the Pages SPA fallback that serves the loader on every path.
+> - Adding `/* /index.html 200` to `_redirects`. Wrangler rejects it as an infinite loop.
+> - Turning on a Cloudflare feature that rewrites HTML on `LOADER_HOST`, such as Rocket Loader, email obfuscation or automatic Web Analytics injection.
+
+## Infrastructure setup
+
+The setup uses an R2 bucket with its public `r2.dev` URL, a classic Cloudflare Pages project, and a CNAME at an external DNS provider. The examples use the bucket `loader-pages` and the project `loader`.
 
 ### Cloudflare
 
-1. Create the R2 bucket (or, if the bucket already exists and belongs to another team, get its public URL from them and skip to step 3):
+1. Create the bucket, enable its public development URL, and write that URL into `site/index.html` as `CDN_BASE_URL`:
 
    ```sh
    npx wrangler r2 bucket create loader-pages
-   ```
-
-2. Enable the public development URL and write it into `site/index.html` as `CDN_BASE_URL` (with a trailing `/`), then commit:
-
-   ```sh
    npx wrangler r2 bucket dev-url enable loader-pages
-   npx wrangler r2 bucket dev-url get loader-pages    # prints https://pub-<id>.r2.dev
+   npx wrangler r2 bucket dev-url get loader-pages    # https://pub-<id>.r2.dev
    ```
 
-3. Set the bucket CORS policy:
+2. Create the Pages project and deploy. `project create` prints the `<PAGES_SUBDOMAIN>.pages.dev` address; the subdomain gets a suffix if the project name is already taken.
 
    ```sh
-   cat > /tmp/r2-cors.json <<'EOF'
+   npx wrangler pages project create loader --production-branch main
+   npm run deploy:loader
+   ```
+
+3. Set the bucket's CORS policy:
+
+   ```json
    {
      "rules": [
        {
@@ -120,68 +157,80 @@ The script refuses if `site/` has uncommitted or untracked changes, or if `CDN_B
        }
      ]
    }
-   EOF
-   npx wrangler r2 bucket cors set loader-pages --file /tmp/r2-cors.json
-   npx wrangler r2 bucket cors list loader-pages
    ```
 
-4. Only if the bucket has no real pages yet, upload the test fixtures (this **overwrites** `manifest.json`):
+   ```sh
+   npx wrangler r2 bucket cors set loader-pages --file r2-cors.json
+   ```
+
+4. Optional, for a bucket with no real pages yet: upload the test fixtures.
 
    ```sh
    R2_BUCKET=loader-pages npm run seed:dev -- --yes-overwrite-manifest
    ```
 
-5. Create the Pages project, deploy, and smoke test `https://<PAGES_SUBDOMAIN>.pages.dev/login`. `<PAGES_SUBDOMAIN>` is the subdomain `project create` prints: the project name, or the name with a suffix if that subdomain is already taken. Create the project before setting CORS in step 3 if you don't know it yet.
+   > [!CAUTION]
+   > This overwrites `manifest.json`. Never run it against a bucket that serves real pages.
 
-   ```sh
-   npx wrangler pages project create loader --production-branch main
-   npm run deploy:loader
-   ```
+5. In the Pages project, go to **Custom domains** and add `LOADER_HOST`.
 
-   Note: when wrangler (4.163 and later) detects that an AI agent is running it, `pages project create` is redirected to Cloudflare Workers instead of classic Pages. An agent must add `--force` once, at creation, to get a classic Pages project. Run by a person, the command creates a classic Pages project as usual. Deploys to an existing Pages project are not redirected.
+### DNS
 
-6. Pages project → Custom domains → add `LOADER_HOST`. Do this **before** step 7; a CNAME without the Pages binding returns 522.
+6. At your DNS provider, create `LOADER_HOST CNAME <PAGES_SUBDOMAIN>.pages.dev` (TTL 300).
 
-### AWS
-
-7. Route 53: `LOADER_HOST  CNAME  <PAGES_SUBDOMAIN>.pages.dev`, TTL 300. If the zone has CAA records, they must allow the CAs Cloudflare uses, or certificate issuance fails.
+> [!IMPORTANT]
+> Add the custom domain in Pages (step 5) before you create the CNAME. Without it, the CNAME returns error 522. If the zone has CAA records, they must allow the certificate authorities Cloudflare uses.
 
 ### Verify
 
-8. Pages shows the custom domain as Active with a certificate.
-9. `curl -I https://<LOADER_HOST>/login` → `200`, `Cache-Control: no-cache`; the body is the loader.
-10. CORS and object metadata:
+```sh
+# 200 with Cache-Control: no-cache
+curl -I https://<LOADER_HOST>/login
 
-    ```sh
-    curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>manifest.json
-    curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>blobs/<hex>.html
-    ```
+# Byte identity: the two hashes must match
+curl -s https://<LOADER_HOST>/ | sha256sum
+sha256sum site/index.html
 
-    Both: `200`, `Access-Control-Allow-Origin`, and the `Cache-Control` from the contract.
-11. Open `https://<LOADER_HOST>/login` in a browser: the page loads.
-12. Byte identity: `curl -s https://<LOADER_HOST>/ | sha256sum` must equal `sha256sum site/index.html`. If they differ, find and disable whatever is rewriting the response before going further.
-
-## Phase 1 limitations
-
-- `r2.dev` has no edge cache: every manifest and blob request is a billed R2 read, and manifest changes are visible immediately.
-- `r2.dev` is rate limited (hundreds of requests per second, variable) and may throttle bandwidth. It is not for production traffic.
-- Expected Phase 1 usage is far inside the R2 free tier (10 million reads, 1 million writes, 10 GB storage per month).
-
-## Phase 2 (not implemented; do only when asked)
-
-Before real traffic: attach a separate `CDN_HOST` (a zone in the same Cloudflare account) as a custom domain on the bucket, add a Cache Rule (hostname equals `CDN_HOST` → eligible for cache, edge TTL respects origin `Cache-Control`), add a Response Header Transform Rule that always sets `Access-Control-Allow-Origin: *` and `X-Content-Type-Options: nosniff` (the edge cache can otherwise replay a response stored without CORS headers), change `CDN_BASE_URL` to `https://<CDN_HOST>/`, commit, redeploy, repeat the byte-identity check, then disable the `r2.dev` URL. To verify, request a blob and `manifest.json` twice with `curl -I`: the second response must have `cf-cache-status: HIT`, `Access-Control-Allow-Origin` (also when the request has no `Origin` header), and the `Cache-Control` from the contract.
-
-**Cost with the edge cache:** a manifest change becomes visible within `MANIFEST_TTL` seconds, and R2 is read at most once per TTL per edge location regardless of traffic or page count. At `MANIFEST_TTL = 60` that is at most
-
-```
-43,200 × (edge locations with traffic)   Class B reads per month for the manifest
+# CORS: both return 200, Access-Control-Allow-Origin, and the Cache-Control from the contract
+curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>manifest.json
+curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>blobs/<hex>.html
 ```
 
-Blobs are immutable and cached for a year, so they add roughly one read per blob per edge location.
+Then open `https://<LOADER_HOST>/login` in a browser.
 
-## Known limits
+## Project structure
 
-- Anyone with write access to the bucket can change what loads. Signing the manifest (Ed25519/ECDSA, verified in the loader with an embedded public key via WebCrypto, with a monotonic version to prevent replay) would remove the CDN from the trust boundary.
-- The shared manifest assumes a single publisher. With more than one, switch to one pointer file per page.
-- No CSP.
-- Pages share one origin and are not isolated from each other.
+```
+site/
+  index.html            the loader
+  _headers              Cache-Control: no-cache and security headers for every path
+docs/CDN-CONTRACT.md    contract for the app repository that publishes pages
+scripts/
+  deploy-loader.mjs     deploys site/ to Pages after safety checks
+  seed-dev.mjs          uploads the test fixtures to a dev bucket
+tests/
+  site.test.mjs         unit tests
+  e2e.spec.mjs          Playwright tests
+  fixtures/             sample pages and make-cdn.mjs, the reference publisher
+```
+
+## Limitations
+
+- **r2.dev is not for production.** It has no edge cache, so every request is a billed R2 read. It is also rate limited and may throttle bandwidth. Low-traffic use stays well inside the R2 free tier.
+- **The bucket is the trust boundary.** Anyone with write access to the bucket controls what loads. Signing the manifest would remove the CDN from the trust boundary; the loader would verify it with an embedded public key through WebCrypto.
+- **There is one publisher.** The shared manifest assumes a single writer. With more than one, use one pointer file per page.
+- **Pages are not isolated.** All pages share one origin, and there is no CSP.
+
+### Before production traffic
+
+Put the bucket behind its own cached hostname:
+
+1. Attach a custom domain (`CDN_HOST`) to the bucket.
+2. Add a Cache Rule so `CDN_HOST` is eligible for cache and respects the origin's `Cache-Control`.
+3. Add a response-header Transform Rule that always sets `Access-Control-Allow-Origin: *` and `X-Content-Type-Options: nosniff`. Without it, the cache can replay a response that was stored without CORS headers.
+4. Change `CDN_BASE_URL` to `https://<CDN_HOST>/`, commit, redeploy, and run the byte-identity check again.
+5. Disable the `r2.dev` URL.
+
+To verify, request `manifest.json` and a blob twice each. The second response should show `cf-cache-status: HIT` and `Access-Control-Allow-Origin`.
+
+With caching, a manifest change becomes visible within the manifest TTL. R2 then serves at most one manifest read per TTL per edge location: at a 60-second TTL, that is 43,200 reads per month per edge location with traffic. Blobs are immutable and cached for a year.
