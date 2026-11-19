@@ -2,7 +2,7 @@
 
 A static loader on Cloudflare Pages that only loads pages whose SHA-256 checksum the browser has verified.
 
-[Overview](#overview) • [Getting started](#getting-started) • [Deployment](#deployment) • [Infrastructure setup](#infrastructure-setup) • [Limitations](#limitations)
+[Overview](#overview) • [Getting started](#getting-started) • [Deployment](#deployment) • [Infrastructure setup](#infrastructure-setup) • [Limitations](#limitations) • [Code transparency](#planned-code-transparency)
 
 ## Overview
 
@@ -217,7 +217,7 @@ tests/
 ## Limitations
 
 - **r2.dev is not for production.** It has no edge cache, so every request is a billed R2 read. It is also rate limited and may throttle bandwidth. Low-traffic use stays well inside the R2 free tier.
-- **The bucket is the trust boundary.** Anyone with write access to the bucket controls what loads. Signing the manifest would remove the CDN from the trust boundary; the loader would verify it with an embedded public key through WebCrypto.
+- **The bucket is the trust boundary.** Anyone with write access to the bucket controls what loads. [Code transparency](#planned-code-transparency) is planned to close this gap.
 - **There is one publisher.** The shared manifest assumes a single writer. With more than one, use one pointer file per page.
 - **Pages are not isolated.** All pages share one origin, and there is no CSP.
 
@@ -234,3 +234,26 @@ Put the bucket behind its own cached hostname:
 To verify, request `manifest.json` and a blob twice each. The second response should show `cf-cache-status: HIT` and `Access-Control-Allow-Origin`.
 
 With caching, a manifest change becomes visible within the manifest TTL. R2 then serves at most one manifest read per TTL per edge location: at a 60-second TTL, that is 43,200 reads per month per edge location with traffic. Blobs are immutable and cached for a year.
+
+## Planned: code transparency
+
+> [!NOTE]
+> This is a design concept. It is not implemented yet.
+
+The loader trusts any checksum the manifest lists. Whoever can write to the bucket can serve a page that nobody else ever sees.
+
+The planned check runs after the loader reads the checksum and before it downloads the blob:
+
+1. The publisher records each page checksum in a public, append-only transparency log before listing it in the manifest.
+2. A witness signs the state of the log. The loader embeds the witness's public key.
+3. The loader verifies the witness's signature, then the proof that the checksum is included in the signed log state. If either check fails, nothing is loaded.
+
+Every page the loader loads is then on the public log, so anyone can monitor the log and see every version that has been served.
+
+Adopting the check requires:
+
+- a loader update that adds the verification code and the witness key,
+- a publisher that logs each checksum and supplies the proof,
+- new CDN contract fields that carry the proof.
+
+The log, the witness, the proof format and how proofs reach the loader are still open.

@@ -92,4 +92,4 @@ Each page is written into the loader's document with `document.write`. For page 
 
 ## Trust model
 
-The bucket decides what is loaded. The checksum guarantees that the blob matches the manifest, which rules out corruption and partial or mixed versions. It does not protect against anyone who can write to the bucket, so restrict write access accordingly. A signed manifest is a possible future hardening step.
+The bucket decides what is loaded. The checksum guarantees that the blob matches the manifest, which rules out corruption and partial or mixed versions. It does not protect against anyone who can write to the bucket, so restrict write access accordingly. A transparency-log check is planned; see [Planned: code transparency](../README.md#planned-code-transparency).
