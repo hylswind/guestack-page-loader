@@ -69,10 +69,10 @@ Publishing one page for December 2026 to R2 with wrangler:
 
 ```sh
 hex=$(sha256sum dist/login.html | cut -d' ' -f1)
-npx wrangler r2 object put "<BUCKET>/blobs/$hex.html" --remote --file dist/login.html
+npx wrangler r2 object put "<R2_BUCKET>/blobs/$hex.html" --remote --file dist/login.html
 
 # Confirm the blob is reachable, then write that month's full manifest
-npx wrangler r2 object put "<BUCKET>/manifests/202612.json" --remote --file manifest.json
+npx wrangler r2 object put "<R2_BUCKET>/manifests/202612.json" --remote --file manifest.json
 ```
 
 ### Reference implementation

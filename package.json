@@ -9,7 +9,6 @@
   "scripts": {
     "test": "node --test tests/site.test.mjs",
     "test:e2e": "playwright test",
-    "deploy:loader": "node scripts/deploy-loader.mjs",
     "seed:dev": "node scripts/seed-dev.mjs"
   },
   "devDependencies": {
