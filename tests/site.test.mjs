@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { DEFAULT_PAGES_DIR, makeCdn, sha256Hex } from "./fixtures/make-cdn.mjs";
+import { DEFAULT_PAGES_DIR, makeCdn, sha256Hex, utcMonth } from "./fixtures/make-cdn.mjs";
 
 const root = resolve(fileURLToPath(import.meta.url), "../..");
 const siteDir = join(root, "site");
@@ -57,13 +57,34 @@ describe("site/index.html", () => {
     assert.equal(indexHtml.match(/<script\b/gi).length, 1);
     assert.doesNotMatch(indexHtml, /innerHTML|outerHTML|insertAdjacentHTML/);
   });
+
+  test("picks the manifest by UTC month, never local time", () => {
+    assert.match(indexHtml, /\$\{CDN_BASE_URL\}manifests\/\$\{month\}\.json/);
+    assert.match(indexHtml, /getUTCFullYear\(\)/);
+    assert.match(indexHtml, /getUTCMonth\(\)/);
+    assert.doesNotMatch(indexHtml, /\.get(FullYear|Month|Date|Hours)\(/, "no local-time getters");
+    assert.doesNotMatch(indexHtml, /manifest\.json/, "no fixed manifest key");
+  });
+});
+
+describe("utcMonth", () => {
+  const cases = {
+    "2026-11-30T23:59:59.999Z": "202611",
+    "2026-12-01T00:00:00.000Z": "202612",
+    "2026-12-31T23:59:59.999Z": "202612",
+    "2027-01-01T00:00:00.000Z": "202701",
+  };
+  for (const [iso, month] of Object.entries(cases)) {
+    test(`${iso} -> ${month}`, () => assert.equal(utcMonth(new Date(iso)), month));
+  }
 });
 
 describe("tests/fixtures/make-cdn.mjs", () => {
-  test("writes content-addressed blobs and a matching manifest", () => {
+  test("writes content-addressed blobs and one manifest per month", () => {
     const outDir = mkdtempSync(join(tmpdir(), "loader-cdn-"));
+    const months = ["202611", "202612"];
     try {
-      const manifest = makeCdn({ outDir });
+      const manifest = makeCdn({ outDir, months });
 
       const fixtures = readdirSync(DEFAULT_PAGES_DIR).filter((f) => f.endsWith(".html")).sort();
       const expectedPages = Object.fromEntries(
@@ -74,8 +95,15 @@ describe("tests/fixtures/make-cdn.mjs", () => {
       );
       assert.deepEqual(manifest, { version: 1, pages: expectedPages });
 
-      const onDisk = JSON.parse(readFileSync(join(outDir, "manifest.json"), "utf8"));
-      assert.deepEqual(onDisk, manifest);
+      assert.deepEqual(readdirSync(outDir).sort(), ["blobs", "manifests"]);
+      assert.deepEqual(
+        readdirSync(join(outDir, "manifests")).sort(),
+        months.map((m) => `${m}.json`),
+      );
+      for (const month of months) {
+        const onDisk = JSON.parse(readFileSync(join(outDir, "manifests", `${month}.json`), "utf8"));
+        assert.deepEqual(onDisk, manifest);
+      }
 
       const blobs = readdirSync(join(outDir, "blobs")).sort();
       assert.equal(blobs.length, fixtures.length);

@@ -144,7 +144,11 @@
       return;
     }
 
-    const mRes = await fetch(`${CDN_BASE_URL}manifest.json`, {
+    // One manifest per UTC month (manifests/YYYYMM.json), chosen by the visitor's clock.
+    const now = new Date();
+    const month = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+
+    const mRes = await fetch(`${CDN_BASE_URL}manifests/${month}.json`, {
       cache: "no-cache",
       mode: "cors",
       credentials: "omit",

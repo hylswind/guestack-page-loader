@@ -8,13 +8,13 @@ A static loader on Cloudflare Pages that only loads pages whose SHA-256 checksum
 
 Opening `https://<LOADER_HOST>/<page>`:
 
-1. looks up the current SHA-256 of `<page>` in a single `manifest.json` on the CDN,
+1. looks up the SHA-256 of `<page>` in the current month's manifest on the CDN, `manifests/<YYYYMM>.json`,
 2. downloads `blobs/<sha256>.html` with `fetch()` and its [`integrity`](https://developer.mozilla.org/en-US/docs/Web/API/RequestInit#integrity) option (Subresource Integrity), so the browser rejects the response if its hash does not match,
 3. replaces the current document with that HTML once the browser has verified it.
 
 ```
 /login ─▶ validate page name
-       ─▶ fetch <CDN_BASE_URL>manifest.json        → pages.login.sha256 = <hex>
+       ─▶ fetch <CDN_BASE_URL>manifests/202611.json → pages.login.sha256 = <hex>
        ─▶ fetch <CDN_BASE_URL>blobs/<hex>.html     with integrity="sha256-…"
        ─▶ verified ─▶ document.write(html)
 
@@ -30,6 +30,7 @@ Pages are built and published by a separate app repository. The interface betwee
 - **No build step.** `site/` holds two hand-written files and is deployed byte for byte, so you can compare the served file with git directly.
 - **No dependencies.** The loader is one HTML file with one inline script. It loads no external scripts, styles, fonts or images.
 - **One setting.** The CDN location is a single literal in `site/index.html`.
+- **Scheduled releases.** Each UTC month has its own manifest. A month's pages can be published in advance, and every visitor switches to them at 00:00 UTC on the 1st.
 - **Untrusted manifest.** The loader reads only `pages.<name>.sha256` from the manifest. The page name is validated before any request is made and is never used to build a URL.
 
 ### What visitors see
@@ -39,7 +40,7 @@ Pages are built and published by a separate app repository. The interface betwee
 | Loading (shown only if it takes longer than 0.35 s) | Loading… |
 | `/` with no page name | No page specified. Please open the full link you were given. |
 | Malformed page name (`/Login`, `/a/b`, `/login.html`) | Invalid page. |
-| Manifest missing, not JSON, or has no `pages` object | Unable to look up the page. |
+| This month's manifest missing, not JSON, or has no `pages` object | Unable to look up the page. |
 | Page not listed in the manifest | Page not found. |
 | Checksum is not 64 lowercase hex characters | Invalid checksum. |
 | Blob request returns a non-2xx status | Page content is unavailable. |
@@ -170,7 +171,7 @@ The setup uses an R2 bucket with its public `r2.dev` URL, a classic Cloudflare P
    ```
 
    > [!CAUTION]
-   > This overwrites `manifest.json`. Never run it against a bucket that serves real pages.
+   > This overwrites the manifests for the current and the next UTC month. Never run it against a bucket that serves real pages.
 
 5. In the Pages project, go to **Custom domains** and add `LOADER_HOST`.
 
@@ -192,7 +193,7 @@ curl -s https://<LOADER_HOST>/ | sha256sum
 sha256sum site/index.html
 
 # CORS: both return 200 with Access-Control-Allow-Origin
-curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>manifest.json
+curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>manifests/<YYYYMM>.json
 curl -sI -H "Origin: https://<LOADER_HOST>" <CDN_BASE_URL>blobs/<hex>.html
 ```
 
@@ -218,7 +219,8 @@ tests/
 
 - **r2.dev is not for production.** It has no edge cache, so every request is a billed R2 read. It is also rate limited and may throttle bandwidth. Low-traffic use stays well inside the R2 free tier.
 - **The bucket is the trust boundary.** Anyone with write access to the bucket controls what loads. [Code transparency](#planned-code-transparency) is planned to close this gap.
-- **There is one publisher.** The shared manifest assumes a single writer. With more than one, use one pointer file per page.
+- **The visitor's clock picks the month.** A device with a wrong clock reads another month's manifest.
+- **There is one publisher.** Each manifest assumes a single writer. With more than one, use one pointer file per page.
 - **Pages are not isolated.** All pages share one origin, and there is no CSP.
 
 ### Before production traffic
@@ -231,7 +233,7 @@ Put the bucket behind its own cached hostname:
 4. Change `CDN_BASE_URL` to `https://<CDN_HOST>/`, commit, redeploy, and run the byte-identity check again.
 5. Disable the `r2.dev` URL.
 
-To verify, request `manifest.json` and a blob twice each. The second response should show `cf-cache-status: HIT` and `Access-Control-Allow-Origin`.
+To verify, request the current month's manifest and a blob twice each. The second response should show `cf-cache-status: HIT` and `Access-Control-Allow-Origin`.
 
 With caching, a manifest change becomes visible within the manifest TTL. R2 then serves at most one manifest read per TTL per edge location: at a 60-second TTL, that is 43,200 reads per month per edge location with traffic. Blobs are immutable and cached for a year.
 

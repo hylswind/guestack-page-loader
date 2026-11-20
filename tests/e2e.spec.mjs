@@ -6,7 +6,7 @@
 // Any request to a host other than the local dev server fails the test.
 
 import { expect, test } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,8 +17,10 @@ const indexHtml = readFileSync(join(root, "site/index.html"), "utf8");
 const CDN_BASE_URL = indexHtml.match(/const CDN_BASE_URL = "([^"]+)";/)[1];
 const CDN_ORIGIN = new URL(CDN_BASE_URL).origin;
 
-// Built once by tests/global-setup.mjs; workers only read it.
-const MANIFEST = JSON.parse(readFileSync(join(DEFAULT_OUT_DIR, "manifest.json"), "utf8"));
+// Built once by tests/global-setup.mjs; workers only read it. The fake CDN
+// serves this manifest for every month unless a test overrides it.
+const [MANIFEST_FILE] = readdirSync(join(DEFAULT_OUT_DIR, "manifests"));
+const MANIFEST = JSON.parse(readFileSync(join(DEFAULT_OUT_DIR, "manifests", MANIFEST_FILE), "utf8"));
 const LOGIN_HEX = MANIFEST.pages.login.sha256;
 const HOME_HEX = MANIFEST.pages.home.sha256;
 const manifestBody = (manifest) => JSON.stringify(manifest);
@@ -26,13 +28,18 @@ const blobBody = (hex) => readFileSync(join(DEFAULT_OUT_DIR, "blobs", `${hex}.ht
 
 const CORS = { "Access-Control-Allow-Origin": "*" };
 
+// Every test runs with a fixed clock (UTC), so the loader asks for this month.
+const NOW = new Date("2026-11-15T12:00:00Z");
+const MONTH = "202611";
+const MANIFEST_PATH = `manifests/${MONTH}.json`;
+
 /**
  * Installs the fake CDN for one test.
  *
  * Overrides (all optional), each a function returning a route.fulfill() option
  * object, or undefined for the default behaviour:
- *   manifest()   response for manifest.json
- *   blob(hex)    response for blobs/<hex>.html
+ *   manifest(month)   response for manifests/<month>.json
+ *   blob(hex)         response for blobs/<hex>.html
  *
  * Returns { requests, unexpected, set } where requests lists every CDN path
  * requested and unexpected lists every request that should never happen.
@@ -54,8 +61,9 @@ async function fakeCdn(page, overrides = {}) {
     const path = url.pathname.slice(new URL(CDN_BASE_URL).pathname.length);
     state.requests.push(path);
 
-    if (path === "manifest.json") {
-      const custom = state.overrides.manifest?.();
+    const manifest = path.match(/^manifests\/([0-9]{6})\.json$/);
+    if (manifest) {
+      const custom = state.overrides.manifest?.(manifest[1]);
       return route.fulfill(
         custom ?? {
           status: 200,
@@ -126,6 +134,7 @@ async function expectNotice(page) {
 
 let dialogs;
 test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(NOW);
   dialogs = [];
   page.on("dialog", (d) => {
     dialogs.push(d.message());
@@ -169,7 +178,7 @@ test.describe("loading pages", () => {
       await page.goto(path);
       await expect(page.locator("#script-ran")).toHaveText("login script ran");
       await expect(page.locator("#title")).toHaveText("Login fixture page");
-      expect(cdn.requests).toEqual(["manifest.json", `blobs/${LOGIN_HEX}.html`]);
+      expect(cdn.requests).toEqual([MANIFEST_PATH, `blobs/${LOGIN_HEX}.html`]);
       expect(cdn.unexpected).toEqual([]);
     });
   }
@@ -239,7 +248,7 @@ test.describe("manifest problems", () => {
     const cdn = await fakeCdn(page);
     await page.goto("/nope");
     await expectError(page, "Page not found.");
-    expect(cdn.requests).toEqual(["manifest.json"]);
+    expect(cdn.requests).toEqual([MANIFEST_PATH]);
   });
 
   const json = (body) => () => ({
@@ -276,7 +285,7 @@ test.describe("manifest problems", () => {
       const cdn = await fakeCdn(page, { manifest });
       await page.goto("/login");
       await expectError(page, message);
-      expect(cdn.requests).toEqual(["manifest.json"]);
+      expect(cdn.requests).toEqual([MANIFEST_PATH]);
       expect(cdn.unexpected).toEqual([]);
     });
   }
@@ -285,7 +294,7 @@ test.describe("manifest problems", () => {
     const cdn = await fakeCdn(page);
     await page.goto("/constructor");
     await expectError(page, "Page not found.");
-    expect(cdn.requests).toEqual(["manifest.json"]);
+    expect(cdn.requests).toEqual([MANIFEST_PATH]);
   });
 });
 
@@ -305,7 +314,7 @@ test.describe("blob problems", () => {
     await page.goto("/login");
     await expectError(page, "Failed to load the page.");
     expect(await page.content()).not.toContain("TAMPERED");
-    expect(cdn.requests).toEqual(["manifest.json", `blobs/${LOGIN_HEX}.html`]);
+    expect(cdn.requests).toEqual([MANIFEST_PATH, `blobs/${LOGIN_HEX}.html`]);
   });
 
   test("a single appended byte is refused", async ({ page }) => {
@@ -327,6 +336,77 @@ test.describe("blob problems", () => {
     // before res.ok is checked. Either way the page is not loaded.
     await expectError(page);
     await expect(page.locator("#title")).toHaveCount(0);
+  });
+});
+
+test.describe("monthly manifest", () => {
+  const boundaries = {
+    "2026-11-30T23:59:59.999Z": "202611",
+    "2026-12-01T00:00:00.000Z": "202612",
+    "2026-12-31T23:59:59.999Z": "202612",
+    "2027-01-01T00:00:00.000Z": "202701",
+  };
+  for (const [iso, month] of Object.entries(boundaries)) {
+    test(`at ${iso} the loader reads manifests/${month}.json`, async ({ page }) => {
+      await page.clock.setFixedTime(new Date(iso));
+      const cdn = await fakeCdn(page);
+      await page.goto("/login");
+      await expect(page.locator("#script-ran")).toHaveText("login script ran");
+      expect(cdn.requests[0]).toBe(`manifests/${month}.json`);
+      expect(cdn.unexpected).toEqual([]);
+    });
+  }
+
+  test("the month is UTC, not the visitor's local time zone", async ({ browser }) => {
+    const ctx = await browser.newContext({ timezoneId: "Asia/Taipei" });
+    const page = await ctx.newPage();
+    // 1 December 00:30 in Taipei, still November in UTC.
+    await page.clock.setFixedTime(new Date("2026-11-30T16:30:00Z"));
+    const cdn = await fakeCdn(page);
+    await page.goto("/login");
+    await expect(page.locator("#script-ran")).toHaveText("login script ran");
+    expect(await page.evaluate(() => new Date().getDate())).toBe(1);
+    expect(cdn.requests[0]).toBe("manifests/202611.json");
+    await ctx.close();
+  });
+
+  test("pages published for next month take over when it starts", async ({ page }) => {
+    const december = structuredClone(MANIFEST);
+    december.pages.login.sha256 = HOME_HEX;
+    const cdn = await fakeCdn(page, {
+      manifest: (month) =>
+        month === "202612"
+          ? {
+              status: 200,
+              headers: { ...CORS, "Content-Type": "application/json" },
+              body: manifestBody(december),
+            }
+          : undefined,
+    });
+
+    await page.goto("/login");
+    await expect(page.locator("#title")).toHaveText("Login fixture page");
+
+    await page.clock.setFixedTime(new Date("2026-12-01T00:00:00Z"));
+    await page.goto("/login");
+    await expect(page.locator("#title")).toHaveText("Home fixture page");
+    expect(cdn.requests).toEqual([
+      "manifests/202611.json",
+      `blobs/${LOGIN_HEX}.html`,
+      "manifests/202612.json",
+      `blobs/${HOME_HEX}.html`,
+    ]);
+  });
+
+  test("a missing month manifest is an error, with no fallback to another month", async ({ page }) => {
+    const cdn = await fakeCdn(page, {
+      manifest: (month) =>
+        month === MONTH ? { status: 404, headers: CORS, body: "not found" } : undefined,
+    });
+    await page.goto("/login");
+    await expectError(page, "Unable to look up the page.");
+    await page.waitForLoadState("networkidle");
+    expect(cdn.requests).toEqual([MANIFEST_PATH]);
   });
 });
 

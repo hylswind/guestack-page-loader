@@ -5,14 +5,14 @@ The interface between the loader (this repository) and the app repository that p
 [How the loader reads the CDN](#how-the-loader-reads-the-cdn) • [Objects](#objects) • [Manifest](#manifest) • [Publishing](#publishing) • [Writing pages](#writing-pages) • [Trust model](#trust-model)
 
 > [!IMPORTANT]
-> The loader is deployed once and is meant to stay unchanged. The parts it reads are **frozen**: `pages.<name>.sha256` in `manifest.json` and the object at `blobs/<hex>.html` must never change meaning.
+> The loader is deployed once and is meant to stay unchanged. The parts it reads are **frozen**: the key `manifests/<YYYYMM>.json`, `pages.<name>.sha256` inside it, and the object at `blobs/<hex>.html` must never change meaning.
 
 ## How the loader reads the CDN
 
 For a request to `https://<LOADER_HOST>/<page>`, the loader:
 
 1. checks that `<page>` matches `^[a-z0-9][a-z0-9-]{0,63}$`, and otherwise shows an error without making a request,
-2. fetches `<CDN_BASE_URL>manifest.json`,
+2. fetches the current month's manifest, `<CDN_BASE_URL>manifests/<YYYYMM>.json` (see [Monthly manifests](#monthly-manifests)),
 3. reads `pages.<page>.sha256`, and shows "Page not found." if there is no entry,
 4. fetches `<CDN_BASE_URL>blobs/<sha256>.html` with the `fetch()` [`integrity`](https://developer.mozilla.org/en-US/docs/Web/API/RequestInit#integrity) option set to `sha256-<base64 of the same digest>`, so the browser rejects the response if its hash does not match,
 5. decodes the body as UTF-8 and replaces the current document with it using `document.open/write/close`.
@@ -23,7 +23,7 @@ If any step fails, nothing is loaded.
 
 | Key | Content |
 | --- | --- |
-| `manifest.json` | See [Manifest](#manifest). |
+| `manifests/<YYYYMM>.json` | The manifest for one UTC month. See [Manifest](#manifest). |
 | `blobs/<hex>.html` | The page's exact bytes. `<hex>` is their SHA-256: 64 lowercase hex characters, as printed by `sha256sum`. |
 
 > [!WARNING]
@@ -47,33 +47,40 @@ If any step fails, nothing is loaded.
 - A page exists if and only if it has an entry.
 - Unknown fields are ignored, so metadata can be added at the top level or inside entries.
 
+### Monthly manifests
+
+- `YYYYMM` is the current year and month in UTC, as read from the visitor's clock. For example, from `2026-12-01T00:00:00Z` the loader reads `manifests/202612.json`.
+- Each manifest is complete on its own: it lists every page available that month. A page missing from the current month's manifest is "Page not found." even if an earlier month listed it.
+- If the current month's manifest is missing or invalid, every page shows "Unable to look up the page." The loader never falls back to another month.
+
 ## Publishing
 
 ### Rules
 
-1. **Blob first, manifest last.** Upload the blob, confirm it is reachable, then update the manifest. The manifest must never reference a blob that is not live.
-2. **Blobs are immutable.** Never overwrite a blob with different bytes, and never delete a blob that is still referenced. Keeping old blobs makes a rollback a manifest edit.
-3. **One publisher.** The app repository owns `manifest.json` and writes the whole file, with every page, on each publish. Concurrent writers would overwrite each other's entries.
-4. **CORS.** Both objects are fetched cross-origin with `mode: "cors"` and `credentials: "omit"`. `GET` and `HEAD` responses must include `Access-Control-Allow-Origin` for every loader origin:
+1. **Blob first, manifest last.** Upload the blob, confirm it is reachable, then update the manifest. A manifest must never reference a blob that is not live.
+2. **Publish each month in advance.** Upload a month's manifest, and every blob it references, before 00:00 UTC on the 1st of that month. A month's manifest can still be updated during the month. Never change a past month's manifest.
+3. **Blobs are immutable.** Never overwrite a blob with different bytes, and never delete a blob that is still referenced. Keeping old blobs makes a rollback a manifest edit.
+4. **One publisher.** The app repository owns the manifests and writes each one as a whole file, with every page, on each publish. Concurrent writers would overwrite each other's entries.
+5. **CORS.** Manifests and blobs are fetched cross-origin with `mode: "cors"` and `credentials: "omit"`. `GET` and `HEAD` responses must include `Access-Control-Allow-Origin` for every loader origin:
    - `https://<LOADER_HOST>`
    - `https://<PAGES_SUBDOMAIN>.pages.dev`
 
 ### Example
 
-Publishing one page to R2 with wrangler:
+Publishing one page for December 2026 to R2 with wrangler:
 
 ```sh
 hex=$(sha256sum dist/login.html | cut -d' ' -f1)
 npx wrangler r2 object put "<BUCKET>/blobs/$hex.html" --remote --file dist/login.html
 
-# Confirm the blob is reachable, then write the full manifest
-npx wrangler r2 object put "<BUCKET>/manifest.json" --remote --file manifest.json
+# Confirm the blob is reachable, then write that month's full manifest
+npx wrangler r2 object put "<BUCKET>/manifests/202612.json" --remote --file manifest.json
 ```
 
 ### Reference implementation
 
-- [`tests/fixtures/make-cdn.mjs`](../tests/fixtures/make-cdn.mjs) builds `blobs/<hex>.html` and `manifest.json` from a directory of pages, using only Node built-ins.
-- [`scripts/seed-dev.mjs`](../scripts/seed-dev.mjs) uploads them in the required order.
+- [`tests/fixtures/make-cdn.mjs`](../tests/fixtures/make-cdn.mjs) builds `blobs/<hex>.html` and `manifests/<YYYYMM>.json` from a directory of pages, using only Node built-ins.
+- [`scripts/seed-dev.mjs`](../scripts/seed-dev.mjs) uploads them in the required order, for the current and the next month.
 
 Both are dev tools, not production publishing tools.
 
