@@ -5,7 +5,4 @@ tmp/
 test-results/
 playwright-report/
 
-# AI assistant files (kept locally, not committed)
-CLAUDE.md
-PLAN.md
 .claude/
