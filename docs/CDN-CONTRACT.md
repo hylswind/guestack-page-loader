@@ -11,11 +11,11 @@ The interface between the loader (this repository) and the app repository that p
 
 For a request to `https://<LOADER_HOST>/?page=<page>`, the loader:
 
-1. takes `<page>` from the first `page` query parameter, checks that it matches `^[a-z0-9][a-z0-9-]{0,63}$`, and otherwise shows an error without making a request,
+1. takes `<page>` from the first `page` query parameter and checks it against the [page name rules](#manifest), showing an error without making a request if it fails,
 2. fetches the current month's manifest, `<CDN_BASE_URL>manifests/<YYYYMM>.json` (see [Monthly manifests](#monthly-manifests)),
 3. reads `pages.<page>.sha256`, and shows "Page not found." if there is no entry,
-4. fetches `<CDN_BASE_URL>blobs/<sha256>.html` with the `fetch()` [`integrity`](https://developer.mozilla.org/en-US/docs/Web/API/RequestInit#integrity) option set to `sha256-<base64 of the same digest>`, so the browser rejects the response if its hash does not match,
-5. decodes the body as UTF-8 and replaces the current document with it using `document.open/write/close`.
+4. fetches `<CDN_BASE_URL>blobs/<sha256>.html`, which loads only if its SHA-256 matches the manifest,
+5. replaces the current document with it using `document.open/write/close`.
 
 If any step fails, nothing is loaded.
 
@@ -61,7 +61,7 @@ If any step fails, nothing is loaded.
 2. **Publish each month in advance.** Upload a month's manifest, and every blob it references, before 00:00 UTC on the 1st of that month. A month's manifest can still be updated during the month. Never change a past month's manifest.
 3. **Blobs are immutable.** Never overwrite a blob with different bytes, and never delete a blob that is still referenced. Keeping old blobs makes a rollback a manifest edit.
 4. **One publisher.** The app repository owns the manifests and writes each one as a whole file, with every page, on each publish. Concurrent writers would overwrite each other's entries.
-5. **CORS.** Manifests and blobs are fetched cross-origin with `mode: "cors"` and `credentials: "omit"`. `GET` and `HEAD` responses must include `Access-Control-Allow-Origin` for the loader origin, `https://<LOADER_HOST>`.
+5. **CORS.** Manifests and blobs are fetched cross-origin. Responses must include `Access-Control-Allow-Origin` with `https://<LOADER_HOST>` or `*`.
 
 ### Example
 
@@ -75,10 +75,6 @@ npx wrangler r2 object put "<R2_BUCKET>/blobs/$hex.html" --remote --file dist/lo
 npx wrangler r2 object put "<R2_BUCKET>/manifests/202612.json" --remote --file manifest.json
 ```
 
-### Reference implementation
-
-[`tests/fixtures/make-cdn.mjs`](../tests/fixtures/make-cdn.mjs) builds `blobs/<hex>.html` and `manifests/<YYYYMM>.json` from a directory of pages, using only Node built-ins. It is a test helper, not a publishing tool.
-
 ## Writing pages
 
 Each page is written into the loader's document with `document.write`. For page authors this means:
@@ -89,9 +85,8 @@ Each page is written into the loader's document with `document.write`. For page 
 | URLs | Relative URLs resolve against `https://<LOADER_HOST>/`, which serves only the loader. Inline CSS and JS, or use absolute URLs or `<base href>`. |
 | External resources | The checksum covers only the HTML. An external script or stylesheet needs its own `integrity` attribute and `crossorigin="anonymous"`, and must be served with CORS headers. |
 | Query string and hash | Preserved. Pages can read `location.search`, which includes `page=<name>`, and `location.hash`. |
-| CSP | A Content-Security-Policy on the loader response also applies to pages. There is none at present. |
 | Isolation | All pages share one origin, including cookies and `localStorage`. |
 
 ## Trust model
 
-The bucket decides what is loaded. The checksum guarantees that the blob matches the manifest, which rules out corruption and partial or mixed versions. It does not protect against anyone who can write to the bucket, so restrict write access accordingly. A transparency-log check is planned; see [Planned: code transparency](../README.md#planned-code-transparency).
+The bucket decides what is loaded. The checksum guarantees that the blob matches the manifest, which rules out corruption and partial or mixed versions. It does not protect against anyone who can write to the bucket, so restrict write access accordingly.

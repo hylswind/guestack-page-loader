@@ -176,7 +176,7 @@ docs/CDN-CONTRACT.md    contract for the app repository that publishes pages
 tests/
   site.test.mjs         unit tests
   e2e.spec.mjs          Playwright tests
-  fixtures/             sample pages and make-cdn.mjs, the reference publisher
+  fixtures/             sample pages and make-cdn.mjs, which builds the test CDN
 ```
 
 ## Limitations

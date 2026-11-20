@@ -4,8 +4,7 @@
 //   <outDir>/manifests/<YYYYMM>.json     { "version": 1, "pages": { "<name>": { "sha256": "<hex>" } } }
 //
 // One manifest is written for each requested UTC month (default: the current one).
-// Used by the tests. It is also the reference implementation of the contract
-// for the app repository that publishes pages.
+// Used by the E2E and unit tests.
 
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
