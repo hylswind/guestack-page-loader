@@ -2,7 +2,7 @@
 
 A single-file static loader that only loads pages whose SHA-256 checksum the browser has verified.
 
-[Overview](#overview) • [Getting started](#getting-started) • [Deployment](#deployment) • [Infrastructure setup](#infrastructure-setup) • [Limitations](#limitations) • [Code transparency](#planned-code-transparency)
+[Overview](#overview) • [Getting started](#getting-started) • [Deployment](#deployment) • [Limitations](#limitations) • [Code transparency](#planned-code-transparency)
 
 ## Overview
 
@@ -69,30 +69,9 @@ To preview locally, run `npx wrangler pages dev site` and open http://localhost:
 
 ## Deployment
 
-Deploy from a clean checkout, so the uploaded file is the committed one:
+### First-time setup
 
-```sh
-aws s3 cp site/index.html s3://<LOADER_BUCKET>/index.html \
-  --content-type "text/html; charset=utf-8" \
-  --cache-control "public, max-age=0, s-maxage=<SECONDS>"
-```
-
-`s-maxage` is how long Cloudflare keeps the loader at the edge. Browsers ignore it and revalidate with Cloudflare on every visit (`max-age=0`), so CloudFront and S3 are reached only when the edge copy expires.
-
-| Stage | `<SECONDS>` | A deploy reaches visitors |
-| --- | --- | --- |
-| Development | `300` | within 5 minutes |
-| Production | `31536000` | after you purge the cache: Cloudflare dashboard → **Caching** → **Configuration** → **Custom Purge** → **Hostname** `<LOADER_HOST>` |
-
-> [!WARNING]
-> Each of these breaks the loader:
->
-> - Setting Cloudflare SSL/TLS to Flexible for `<LOADER_HOST>`. CloudFront redirects HTTP to HTTPS, so requests loop.
-> - Turning on a Cloudflare feature that rewrites HTML on `<LOADER_HOST>`, such as Rocket Loader, Email Obfuscation or automatic Web Analytics injection.
-
-## Infrastructure setup
-
-### AWS: loader
+#### AWS: loader
 
 1. Create a private S3 bucket (`<LOADER_BUCKET>`) with Block Public Access on.
 2. In **us-east-1**, request an ACM certificate for `<LOADER_HOST>`. Validate it with the CNAME that ACM gives you, added in Cloudflare as **DNS only**.
@@ -106,26 +85,30 @@ aws s3 cp site/index.html s3://<LOADER_BUCKET>/index.html \
    | Viewer protocol policy | Redirect HTTP to HTTPS |
    | Cache policy | `CachingDisabled` (managed) |
 
-4. Upload the loader (see [Deployment](#deployment)).
+#### Cloudflare: loader
 
-### Cloudflare: loader
+4. Add a **proxied** `CNAME <LOADER_HOST> → <DISTRIBUTION>.cloudfront.net`.
+5. Set SSL/TLS to **Full (strict)** for `<LOADER_HOST>`.
+6. Add a **Cache Rule** for hostname `<LOADER_HOST>`: eligible for cache, Edge TTL and Browser TTL both respecting the origin.
 
-5. Add a **proxied** `CNAME <LOADER_HOST> → <DISTRIBUTION>.cloudfront.net`.
-6. Set SSL/TLS to **Full (strict)** for `<LOADER_HOST>`.
-7. Add a **Cache Rule** for hostname `<LOADER_HOST>`: eligible for cache, Edge TTL and Browser TTL both respecting the origin.
+> [!WARNING]
+> Each of these breaks the loader:
+>
+> - Setting Cloudflare SSL/TLS to Flexible for `<LOADER_HOST>`. CloudFront redirects HTTP to HTTPS, so requests loop.
+> - Turning on a Cloudflare feature that rewrites HTML on `<LOADER_HOST>`, such as Rocket Loader, Email Obfuscation or automatic Web Analytics injection.
 
-### Cloudflare: CDN
+#### Cloudflare: CDN
 
 Run these in the Cloudflare account that holds the `<CDN_HOST>` zone; an R2 custom domain requires the bucket and the zone to be in the same account.
 
-8. Create the bucket and connect `<CDN_HOST>` to it:
+7. Create the bucket and connect `<CDN_HOST>` to it:
 
    ```sh
    npx wrangler r2 bucket create <R2_BUCKET>
    npx wrangler r2 bucket domain add <R2_BUCKET> --domain <CDN_HOST> --zone-id <ZONE_ID>
    ```
 
-9. Set the bucket's CORS policy:
+8. Set the bucket's CORS policy:
 
    ```json
    {
@@ -145,8 +128,26 @@ Run these in the Cloudflare account that holds the `<CDN_HOST>` zone; an R2 cust
    npx wrangler r2 bucket cors set <R2_BUCKET> --file r2-cors.json
    ```
 
-10. Add a **Cache Rule** for hostname `<CDN_HOST>`: eligible for cache, Edge TTL respecting the origin.
-11. Add a **response header Transform Rule** for hostname `<CDN_HOST>` that sets `Access-Control-Allow-Origin: *`, so a response cached without CORS headers still works cross-origin.
+9. Add a **Cache Rule** for hostname `<CDN_HOST>`: eligible for cache, Edge TTL respecting the origin.
+10. Add a **response header Transform Rule** for hostname `<CDN_HOST>` that sets `Access-Control-Allow-Origin: *`, so a response cached without CORS headers still works cross-origin.
+
+### Updating the loader
+
+Upload from a clean checkout, so the uploaded file is the committed one:
+
+```sh
+aws s3 cp site/index.html s3://<LOADER_BUCKET>/index.html \
+  --content-type "text/html; charset=utf-8" \
+  --cache-control "public, max-age=0, s-maxage=<SECONDS>"
+```
+
+`s-maxage` is how long Cloudflare keeps the loader at the edge. Browsers ignore it and revalidate with Cloudflare on every visit (`max-age=0`), so CloudFront and S3 are reached only when the edge copy expires.
+
+| Stage | `<SECONDS>` | An update reaches visitors |
+| --- | --- | --- |
+| Development | `300` | within 5 minutes |
+| Production | `31536000` | after you purge the cache: Cloudflare dashboard → **Caching** → **Configuration** → **Custom Purge** → **Hostname** `<LOADER_HOST>` |
+
 ### Verify
 
 These checks need at least one published page (`<page>`, with its blob `<hex>`).
