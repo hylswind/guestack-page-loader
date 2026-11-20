@@ -21,7 +21,7 @@ Opening `https://<LOADER_HOST>/?page=<page>`:
 /            ─▶ show a notice, make no network requests
 ```
 
-Unverified content is never loaded. If any step fails, the loader shows an error instead.
+`CDN_BASE_URL` is the constant in `site/index.html` that points at the CDN. Unverified content is never loaded. If any step fails, the loader shows an error instead.
 
 Pages are built and published by a separate app repository. The interface between the two is [`docs/CDN-CONTRACT.md`](docs/CDN-CONTRACT.md).
 
@@ -66,14 +66,6 @@ npm run test:e2e    # Playwright against `wrangler pages dev site` on http://loc
 The E2E tests serve the unmodified `site/` directory and answer every request to `CDN_BASE_URL` from `tmp/test-cdn`, built from `tests/fixtures/pages/`. Nothing reaches the real CDN. CORS is not covered, because Chromium does not enforce it on intercepted responses; check it with `curl` (see [Verify](#verify)).
 
 To preview locally, run `npx wrangler pages dev site` and open http://localhost:8788/?page=login. This needs a CDN whose CORS policy allows `http://localhost:8788`.
-
-### Configuration
-
-The only setting is the `CDN_BASE_URL` literal in `site/index.html`. Keep it on its own line, in exactly this form, with a trailing slash; the tests parse it.
-
-```js
-  const CDN_BASE_URL = "https://<CDN_HOST>/";
-```
 
 ## Deployment
 
