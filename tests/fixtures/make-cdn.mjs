@@ -4,10 +4,8 @@
 //   <outDir>/manifests/<YYYYMM>.json     { "version": 1, "pages": { "<name>": { "sha256": "<hex>" } } }
 //
 // One manifest is written for each requested UTC month (default: the current one).
-// Used by the tests and by scripts/seed-dev.mjs. It is also the reference
-// implementation of the contract for the app repository that publishes pages.
-//
-// Run directly:  node tests/fixtures/make-cdn.mjs
+// Used by the tests. It is also the reference implementation of the contract
+// for the app repository that publishes pages.
 
 import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -65,10 +63,4 @@ export function makeCdn({
     writeFileSync(join(outDir, "manifests", `${month}.json`), body);
   }
   return manifest;
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const manifest = makeCdn();
-  console.log(`Wrote ${DEFAULT_OUT_DIR} (manifests/${utcMonth()}.json)`);
-  console.log(JSON.stringify(manifest, null, 2));
 }

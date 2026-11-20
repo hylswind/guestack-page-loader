@@ -77,10 +77,7 @@ npx wrangler r2 object put "<R2_BUCKET>/manifests/202612.json" --remote --file m
 
 ### Reference implementation
 
-- [`tests/fixtures/make-cdn.mjs`](../tests/fixtures/make-cdn.mjs) builds `blobs/<hex>.html` and `manifests/<YYYYMM>.json` from a directory of pages, using only Node built-ins.
-- [`scripts/seed-dev.mjs`](../scripts/seed-dev.mjs) uploads them in the required order, for the current and the next month.
-
-Both are dev tools, not production publishing tools.
+[`tests/fixtures/make-cdn.mjs`](../tests/fixtures/make-cdn.mjs) builds `blobs/<hex>.html` and `manifests/<YYYYMM>.json` from a directory of pages, using only Node built-ins. It is a test helper, not a publishing tool.
 
 ## Writing pages
 

@@ -8,7 +8,7 @@ export default defineConfig({
   globalSetup: "./tests/global-setup.mjs",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  reporter: process.env.CI ? "list" : [["list"]],
+  reporter: "list",
   use: {
     baseURL: `http://localhost:${PORT}`,
   },

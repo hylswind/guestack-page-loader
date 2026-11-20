@@ -147,20 +147,13 @@ Run these in the Cloudflare account that holds the `<CDN_HOST>` zone; an R2 cust
 
 10. Add a **Cache Rule** for hostname `<CDN_HOST>`: eligible for cache, Edge TTL respecting the origin.
 11. Add a **response header Transform Rule** for hostname `<CDN_HOST>` that sets `Access-Control-Allow-Origin: *`, so a response cached without CORS headers still works cross-origin.
-12. Optional, for a bucket with no real pages yet: upload the test fixtures. Set `R2_BUCKET`, `CLOUDFLARE_ACCOUNT_ID` and, if not logged in with wrangler, `CLOUDFLARE_API_TOKEN` in `.env` (see [`.env.example`](.env.example)), then run:
-
-    ```sh
-    npm run seed:dev -- --yes-overwrite-manifest
-    ```
-
-    > [!CAUTION]
-    > This overwrites the manifests for the current and the next UTC month. Never run it against a bucket that serves real pages.
-
 ### Verify
+
+These checks need at least one published page (`<page>`, with its blob `<hex>`).
 
 ```sh
 # Loader: run twice; 200 with s-maxage in Cache-Control, and cf-cache-status: HIT the second time
-curl -sI "https://<LOADER_HOST>/?page=login"
+curl -sI "https://<LOADER_HOST>/?page=<page>"
 
 # Byte identity: the two hashes must match
 curl -s https://<LOADER_HOST>/ | sha256sum
@@ -172,14 +165,13 @@ curl -sI https://<CDN_HOST>/manifests/<YYYYMM>.json
 curl -sI -H "Origin: https://<LOADER_HOST>" https://<CDN_HOST>/blobs/<hex>.html
 ```
 
-Then open `https://<LOADER_HOST>/?page=login` in a browser.
+Then open `https://<LOADER_HOST>/?page=<page>` in a browser.
 
 ## Project structure
 
 ```
 site/index.html         the loader
 docs/CDN-CONTRACT.md    contract for the app repository that publishes pages
-scripts/seed-dev.mjs    uploads the test fixtures to a dev R2 bucket
 tests/
   site.test.mjs         unit tests
   e2e.spec.mjs          Playwright tests
