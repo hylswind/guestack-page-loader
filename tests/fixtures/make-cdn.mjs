@@ -49,7 +49,7 @@ export function makeCdn({
   const files = readdirSync(pagesDir).filter((f) => f.endsWith(".html")).sort();
   for (const file of files) {
     const name = basename(file, ".html");
-    if (!PAGE_NAME_RE.test(name) || name === "index") {
+    if (!PAGE_NAME_RE.test(name)) {
       throw new Error(`Invalid page name: ${JSON.stringify(name)}`);
     }
     // Hash the raw bytes. No decoding, no newline normalization.

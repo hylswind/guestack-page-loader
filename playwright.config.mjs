@@ -13,7 +13,7 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  // Serves the unmodified site/ directory, exactly as Cloudflare Pages would.
+  // Serves the unmodified site/ directory; the loader is requested as /?page=<name>.
   webServer: {
     command: `npx wrangler pages dev site --port ${PORT} --ip 127.0.0.1`,
     url: `http://localhost:${PORT}/`,

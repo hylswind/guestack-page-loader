@@ -9,9 +9,9 @@ The interface between the loader (this repository) and the app repository that p
 
 ## How the loader reads the CDN
 
-For a request to `https://<LOADER_HOST>/<page>`, the loader:
+For a request to `https://<LOADER_HOST>/?page=<page>`, the loader:
 
-1. checks that `<page>` matches `^[a-z0-9][a-z0-9-]{0,63}$`, and otherwise shows an error without making a request,
+1. takes `<page>` from the first `page` query parameter, checks that it matches `^[a-z0-9][a-z0-9-]{0,63}$`, and otherwise shows an error without making a request,
 2. fetches the current month's manifest, `<CDN_BASE_URL>manifests/<YYYYMM>.json` (see [Monthly manifests](#monthly-manifests)),
 3. reads `pages.<page>.sha256`, and shows "Page not found." if there is no entry,
 4. fetches `<CDN_BASE_URL>blobs/<sha256>.html` with the `fetch()` [`integrity`](https://developer.mozilla.org/en-US/docs/Web/API/RequestInit#integrity) option set to `sha256-<base64 of the same digest>`, so the browser rejects the response if its hash does not match,
@@ -43,7 +43,7 @@ If any step fails, nothing is loaded.
 
 - `version` is the version of this file format and is always `1`. The loader does not read it.
 - `pages` is an object. Each key is a page name; each value is an object with a `sha256` string.
-- Page names match `^[a-z0-9][a-z0-9-]{0,63}$`. `index` is reserved: `/index` redirects to `/`, so such a page is unreachable.
+- Page names match `^[a-z0-9][a-z0-9-]{0,63}$`.
 - A page exists if and only if it has an entry.
 - Unknown fields are ignored, so metadata can be added at the top level or inside entries.
 
@@ -61,9 +61,7 @@ If any step fails, nothing is loaded.
 2. **Publish each month in advance.** Upload a month's manifest, and every blob it references, before 00:00 UTC on the 1st of that month. A month's manifest can still be updated during the month. Never change a past month's manifest.
 3. **Blobs are immutable.** Never overwrite a blob with different bytes, and never delete a blob that is still referenced. Keeping old blobs makes a rollback a manifest edit.
 4. **One publisher.** The app repository owns the manifests and writes each one as a whole file, with every page, on each publish. Concurrent writers would overwrite each other's entries.
-5. **CORS.** Manifests and blobs are fetched cross-origin with `mode: "cors"` and `credentials: "omit"`. `GET` and `HEAD` responses must include `Access-Control-Allow-Origin` for every loader origin:
-   - `https://<LOADER_HOST>`
-   - `https://<PAGES_SUBDOMAIN>.pages.dev`
+5. **CORS.** Manifests and blobs are fetched cross-origin with `mode: "cors"` and `credentials: "omit"`. `GET` and `HEAD` responses must include `Access-Control-Allow-Origin` for the loader origin, `https://<LOADER_HOST>`.
 
 ### Example
 
@@ -91,9 +89,9 @@ Each page is written into the loader's document with `document.write`. For page 
 | Topic | Rule |
 | --- | --- |
 | Encoding | Pages must be UTF-8. |
-| URLs | Relative URLs resolve against `https://<LOADER_HOST>/<page>`, where every path serves the loader itself. Inline CSS and JS, or use absolute URLs or `<base href>`. |
+| URLs | Relative URLs resolve against `https://<LOADER_HOST>/`, which serves only the loader. Inline CSS and JS, or use absolute URLs or `<base href>`. |
 | External resources | The checksum covers only the HTML. An external script or stylesheet needs its own `integrity` attribute and `crossorigin="anonymous"`, and must be served with CORS headers. |
-| Query string and hash | Preserved. Pages can read `location.search` and `location.hash`. |
+| Query string and hash | Preserved. Pages can read `location.search`, which includes `page=<name>`, and `location.hash`. |
 | CSP | A Content-Security-Policy on the loader response also applies to pages. There is none at present. |
 | Isolation | All pages share one origin, including cookies and `localStorage`. |
 

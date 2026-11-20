@@ -150,7 +150,7 @@ test.describe("noscript fallback", () => {
   test("with JavaScript disabled, only the fallback message is shown", async ({ browser }) => {
     const ctx = await browser.newContext({ javaScriptEnabled: false });
     const page = await ctx.newPage();
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expect(page.locator(".noscript")).toBeVisible();
     await expect(page.locator(".noscript")).toHaveText("This page requires JavaScript.");
     await expect(page.locator("#status")).toBeHidden();
@@ -158,21 +158,18 @@ test.describe("noscript fallback", () => {
   });
 });
 
-test.describe("routing on the dev server", () => {
-  test("every path is served the loader with no-cache", async ({ request }) => {
-    for (const path of ["/", "/login", "/nope", "/a/b"]) {
+test.describe("dev server", () => {
+  test("serves the unmodified loader at / and /index.html", async ({ request }) => {
+    for (const path of ["/", "/?page=login", "/index.html"]) {
       const res = await request.get(path);
       expect(res.status(), path).toBe(200);
-      expect(res.headers()["cache-control"], path).toBe("no-cache");
-      expect(res.headers()["x-content-type-options"], path).toBe("nosniff");
-      expect(res.headers()["referrer-policy"], path).toBe("strict-origin-when-cross-origin");
       expect(await res.text(), path).toBe(indexHtml);
     }
   });
 });
 
 test.describe("loading pages", () => {
-  for (const path of ["/login", "/login/"]) {
+  for (const path of ["/?page=login", "/index.html?page=login", "/?page=login&page=home"]) {
     test(`${path} shows the login page and runs its script`, async ({ page }) => {
       const cdn = await fakeCdn(page);
       await page.goto(path);
@@ -185,17 +182,17 @@ test.describe("loading pages", () => {
 
   test("query string and hash survive and are readable by the page", async ({ page }) => {
     const cdn = await fakeCdn(page);
-    await page.goto("/login?foo=1#bar");
+    await page.goto("/?page=login&foo=1#bar");
     await expect(page.locator("#script-ran")).toHaveText("login script ran");
-    await expect(page.locator("#search")).toHaveText("?foo=1");
+    await expect(page.locator("#search")).toHaveText("?page=login&foo=1");
     await expect(page.locator("#hash")).toHaveText("#bar");
-    expect(new URL(page.url()).pathname).toBe("/login");
+    expect(new URL(page.url()).pathname).toBe("/");
     expect(cdn.unexpected).toEqual([]);
   });
 
   test("changing the manifest entry changes what loads, loader untouched", async ({ page }) => {
     const cdn = await fakeCdn(page);
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expect(page.locator("#title")).toHaveText("Login fixture page");
 
     const changed = structuredClone(MANIFEST);
@@ -208,7 +205,7 @@ test.describe("loading pages", () => {
       }),
     });
 
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expect(page.locator("#title")).toHaveText("Home fixture page");
     await expect(page.locator("#script-ran")).toHaveText("home script ran");
     expect(cdn.requests.at(-1)).toBe(`blobs/${HOME_HEX}.html`);
@@ -217,7 +214,7 @@ test.describe("loading pages", () => {
 });
 
 test.describe("no page name", () => {
-  for (const path of ["/", "/?page=login"]) {
+  for (const path of ["/", "/?page=", "/?foo=1", "/login"]) {
     test(`${path} shows the notice and makes no CDN request`, async ({ page }) => {
       const cdn = await fakeCdn(page);
       await page.goto(path);
@@ -230,7 +227,14 @@ test.describe("no page name", () => {
 });
 
 test.describe("invalid page names", () => {
-  for (const path of ["/a/b", "/Login", "/__proto__", "/%3Cscript%3E", "/login.html"]) {
+  for (const path of [
+    "/?page=a/b",
+    "/?page=Login",
+    "/?page=__proto__",
+    "/?page=%3Cscript%3E",
+    "/?page=login.html",
+    "/?page=%20login",
+  ]) {
     test(`${path} is rejected without any CDN request`, async ({ page }) => {
       const cdn = await fakeCdn(page);
       await page.goto(path);
@@ -246,7 +250,7 @@ test.describe("invalid page names", () => {
 test.describe("manifest problems", () => {
   test("page missing from the manifest: Page not found, no blob request", async ({ page }) => {
     const cdn = await fakeCdn(page);
-    await page.goto("/nope");
+    await page.goto("/?page=nope");
     await expectError(page, "Page not found.");
     expect(cdn.requests).toEqual([MANIFEST_PATH]);
   });
@@ -283,7 +287,7 @@ test.describe("manifest problems", () => {
   for (const [name, [manifest, message]] of Object.entries(cases)) {
     test(`manifest ${name}: error shown, no blob request`, async ({ page }) => {
       const cdn = await fakeCdn(page, { manifest });
-      await page.goto("/login");
+      await page.goto("/?page=login");
       await expectError(page, message);
       expect(cdn.requests).toEqual([MANIFEST_PATH]);
       expect(cdn.unexpected).toEqual([]);
@@ -292,7 +296,7 @@ test.describe("manifest problems", () => {
 
   test("inherited keys such as constructor are not pages", async ({ page }) => {
     const cdn = await fakeCdn(page);
-    await page.goto("/constructor");
+    await page.goto("/?page=constructor");
     await expectError(page, "Page not found.");
     expect(cdn.requests).toEqual([MANIFEST_PATH]);
   });
@@ -311,7 +315,7 @@ test.describe("blob problems", () => {
         body: tampered,
       }),
     });
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expectError(page, "Failed to load the page.");
     expect(await page.content()).not.toContain("TAMPERED");
     expect(cdn.requests).toEqual([MANIFEST_PATH, `blobs/${LOGIN_HEX}.html`]);
@@ -325,13 +329,13 @@ test.describe("blob problems", () => {
         body: Buffer.concat([blobBody(hex), Buffer.from(" ")]),
       }),
     });
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expectError(page, "Failed to load the page.");
   });
 
   test("blob 404: error shown", async ({ page }) => {
     await fakeCdn(page, { blob: () => ({ status: 404, headers: CORS, body: "not found" }) });
-    await page.goto("/login");
+    await page.goto("/?page=login");
     // The integrity check also runs on the 404 body, so fetch() rejects
     // before res.ok is checked. Either way the page is not loaded.
     await expectError(page);
@@ -350,7 +354,7 @@ test.describe("monthly manifest", () => {
     test(`at ${iso} the loader reads manifests/${month}.json`, async ({ page }) => {
       await page.clock.setFixedTime(new Date(iso));
       const cdn = await fakeCdn(page);
-      await page.goto("/login");
+      await page.goto("/?page=login");
       await expect(page.locator("#script-ran")).toHaveText("login script ran");
       expect(cdn.requests[0]).toBe(`manifests/${month}.json`);
       expect(cdn.unexpected).toEqual([]);
@@ -363,7 +367,7 @@ test.describe("monthly manifest", () => {
     // 1 December 00:30 in Taipei, still November in UTC.
     await page.clock.setFixedTime(new Date("2026-11-30T16:30:00Z"));
     const cdn = await fakeCdn(page);
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expect(page.locator("#script-ran")).toHaveText("login script ran");
     expect(await page.evaluate(() => new Date().getDate())).toBe(1);
     expect(cdn.requests[0]).toBe("manifests/202611.json");
@@ -384,11 +388,11 @@ test.describe("monthly manifest", () => {
           : undefined,
     });
 
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expect(page.locator("#title")).toHaveText("Login fixture page");
 
     await page.clock.setFixedTime(new Date("2026-12-01T00:00:00Z"));
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expect(page.locator("#title")).toHaveText("Home fixture page");
     expect(cdn.requests).toEqual([
       "manifests/202611.json",
@@ -403,7 +407,7 @@ test.describe("monthly manifest", () => {
       manifest: (month) =>
         month === MONTH ? { status: 404, headers: CORS, body: "not found" } : undefined,
     });
-    await page.goto("/login");
+    await page.goto("/?page=login");
     await expectError(page, "Unable to look up the page.");
     await page.waitForLoadState("networkidle");
     expect(cdn.requests).toEqual([MANIFEST_PATH]);

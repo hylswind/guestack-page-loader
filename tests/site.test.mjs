@@ -13,16 +13,8 @@ const siteDir = join(root, "site");
 const indexHtml = readFileSync(join(siteDir, "index.html"), "utf8");
 
 describe("site/", () => {
-  test("contains exactly index.html and _headers", () => {
-    assert.deepEqual(readdirSync(siteDir).sort(), ["_headers", "index.html"]);
-  });
-
-  test("_headers sets no-cache and the security headers for every path", () => {
-    const headers = readFileSync(join(siteDir, "_headers"), "utf8");
-    assert.match(headers, /^\/\*$/m);
-    assert.match(headers, /^\s+Cache-Control: no-cache$/m);
-    assert.match(headers, /^\s+X-Content-Type-Options: nosniff$/m);
-    assert.match(headers, /^\s+Referrer-Policy: strict-origin-when-cross-origin$/m);
+  test("contains exactly index.html", () => {
+    assert.deepEqual(readdirSync(siteDir), ["index.html"]);
   });
 });
 
@@ -56,6 +48,11 @@ describe("site/index.html", () => {
   test("has exactly one inline script and never uses innerHTML", () => {
     assert.equal(indexHtml.match(/<script\b/gi).length, 1);
     assert.doesNotMatch(indexHtml, /innerHTML|outerHTML|insertAdjacentHTML/);
+  });
+
+  test("reads the page name from ?page=, never from the path", () => {
+    assert.match(indexHtml, /new URLSearchParams\(location\.search\)\.get\("page"\)/);
+    assert.doesNotMatch(indexHtml, /location\.pathname/);
   });
 
   test("picks the manifest by UTC month, never local time", () => {

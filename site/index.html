@@ -114,7 +114,7 @@
 (async () => {
   "use strict";
 
-  const CDN_BASE_URL = "https://pub-b4866f87b3c64d11be815db6b70efe19.r2.dev/";
+  const CDN_BASE_URL = "https://cdn.guestack.org/";
 
   const PAGE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
   const HEX_RE = /^[0-9a-f]{64}$/;
@@ -128,9 +128,9 @@
   const notice = (msg) => show("notice", msg);
   const fail = (msg) => show("error", msg);
 
-  // One leading slash and one optional trailing slash are stripped.
-  // Anything that is not a single valid segment is rejected below.
-  const page = location.pathname.replace(/^\//, "").replace(/\/$/, "");
+  // The page is named by the ?page= query parameter (the first one if repeated).
+  // Other parameters and the hash are left for the loaded page.
+  const page = new URLSearchParams(location.search).get("page");
   if (!page) {
     notice("No page specified. Please open the full link you were given.");
     return;

@@ -7,7 +7,8 @@
 // Upload order follows docs/CDN-CONTRACT.md: all blobs first, manifests last.
 //
 // Usage: npm run seed:dev -- --yes-overwrite-manifest
-// Env:   R2_BUCKET (required), CLOUDFLARE_API_TOKEN (or `wrangler login`)
+// Env:   R2_BUCKET (required), CLOUDFLARE_ACCOUNT_ID (the account that owns the bucket),
+//        CLOUDFLARE_API_TOKEN (or `wrangler login`)
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
